@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include "../include/json.hpp"
 #include "UI.h"
-#include "../include/AccountManager.h"
+#include "AccountManager.h"
 
 using json=nlohmann::json;
 static constexpr u64 GAME_TITLE_ID=0x010025400AECE000ULL;
