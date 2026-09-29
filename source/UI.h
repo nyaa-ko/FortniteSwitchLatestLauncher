@@ -68,10 +68,44 @@ static inline void ButtonHint(u8* fb,u32 stride,int x,int y,const std::string& k
 
 class Screen {
 public:
-    u8* fb=nullptr; u32 stride=0;
-    void Begin(){ fb=gfxGetFramebuffer(&width,&height); stride=width*4; Rect(fb,stride,0,0,width,height,BG); }
-    void End(){ gfxFlushBuffers(); gfxSwapBuffers(); gfxWaitForVsync(); }
+    Framebuffer framebuffer{};
+    u8* fb=nullptr;
+    u32 stride=0;
     u32 width=1280,height=720;
+    bool initialized=false;
+
+    bool Init(){
+        Result rc = framebufferCreate(&framebuffer, nwindowGetDefault(), width, height, PIXEL_FORMAT_RGBA_8888, 2);
+        if (R_FAILED(rc)) return false;
+        rc = framebufferMakeLinear(&framebuffer);
+        if (R_FAILED(rc)) {
+            framebufferClose(&framebuffer);
+            return false;
+        }
+        initialized=true;
+        return true;
+    }
+
+    void Begin(){
+        if(!initialized) return;
+        fb=(u8*)framebufferBegin(&framebuffer, &stride);
+        if(!fb) return;
+        Rect(fb,stride,0,0,(int)width,(int)height,BG);
+    }
+
+    void End(){
+        if(!initialized || !fb) return;
+        framebufferEnd(&framebuffer);
+        fb=nullptr;
+    }
+
+    void Close(){
+        if(initialized){
+            framebufferClose(&framebuffer);
+            initialized=false;
+            fb=nullptr;
+        }
+    }
     void Header(const std::string& title,const std::string& right="HOME"){
         Rect(fb,stride,0,0,1280,74,PANEL); Rect(fb,stride,0,72,1280,2,BLUE);
         Text(fb,stride,36,23,"MIDNIGHT LAUNCHER",TEXT,3); Text(fb,stride,1040,27,right,MUTED,2); Text(fb,stride,36,50,title,MUTED,2);

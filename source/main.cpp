@@ -4,7 +4,7 @@
 #include <unistd.h>
 #include "../include/json.hpp"
 #include "UI.h"
-#include "AccountManager.h"
+#include "../include/AccountManager.h"
 
 using json=nlohmann::json;
 static constexpr u64 GAME_TITLE_ID=0x010025400AECE000ULL;
@@ -29,8 +29,8 @@ static void CommandLine(PadState&pad){int sel=0;MidnightUI::Screen s;while(apple
 
 static void PatchInfo(PadState&pad){MidnightUI::Screen s;while(appletMainLoop()){s.Begin();s.Header("PATCH","SYSTEM");MidnightUI::Rect(s.fb,s.stride,70,130,1140,360,MidnightUI::PANEL);MidnightUI::Text(s.fb,s.stride,105,170,"PATCH MANAGEMENT",MidnightUI::TEXT,4);MidnightUI::Text(s.fb,s.stride,105,235,"PATCH FILES ARE NOT MODIFIED BY THIS BUILD.",MidnightUI::MUTED,2);MidnightUI::Text(s.fb,s.stride,105,275,"FORTNITEBAN",MidnightUI::TEXT,3);MidnightUI::Text(s.fb,s.stride,105,325,"STATUS: EXTERNAL",MidnightUI::YELLOW,3);MidnightUI::Text(s.fb,s.stride,105,385,"USE YOUR NORMAL FILE MANAGEMENT METHOD.",MidnightUI::MUTED,2);s.Footer(true);s.End();padUpdate(&pad);if(padGetButtonsDown(&pad)&HidNpadButton_B)return;}}
 
-int main(){gfxInitDefault();padConfigureInput(1,HidNpadStyleSet_NpadStandard);PadState pad;padInitializeDefault(&pad);AccountManager::EnsureDirectory();EnsureCommandLine();int sel=0;MidnightUI::Screen s;
+int main(){padConfigureInput(1,HidNpadStyleSet_NpadStandard);PadState pad;padInitializeDefault(&pad);AccountManager::EnsureDirectory();EnsureCommandLine();int sel=0;MidnightUI::Screen s;if(!s.Init()) return 1;
  while(appletMainLoop()){
   json db=AccountManager::Load();s.Begin();s.Header("HOME","MIDNIGHT");s.Row(0,sel==0,"ACCOUNTS",std::to_string(db["accounts"].size()));s.Row(1,sel==1,"LAUNCH","FORTNITE");s.Row(2,sel==2,"COMMAND LINE","NORMAL");s.Row(3,sel==3,"PATCH","EXTERNAL");s.Row(4,sel==4,"SETTINGS","");s.Row(5,sel==5,"EXIT","");
   MidnightUI::Rect(s.fb,s.stride,730,130,470,320,MidnightUI::PANEL);MidnightUI::Text(s.fb,s.stride,765,165,"ACTIVE ACCOUNT",MidnightUI::MUTED,2);MidnightUI::Text(s.fb,s.stride,765,210,ActiveLabel(db),MidnightUI::TEXT,4);MidnightUI::Text(s.fb,s.stride,765,285,"A SELECT",MidnightUI::MUTED,2);MidnightUI::Text(s.fb,s.stride,765,325,"B BACK",MidnightUI::MUTED,2);MidnightUI::Text(s.fb,s.stride,765,365,"UP / DOWN MOVE",MidnightUI::MUTED,2);s.Footer(false);s.End();padUpdate(&pad);u64 k=padGetButtonsDown(&pad);if(k&HidNpadButton_Plus)break;if(k&HidNpadButton_Up)sel=(sel+5)%6;if(k&HidNpadButton_Down)sel=(sel+1)%6;if(k&HidNpadButton_A){switch(sel){case 0:Accounts(pad);break;case 1:appletRequestLaunchApplication(GAME_TITLE_ID,nullptr);break;case 2:CommandLine(pad);break;case 3:PatchInfo(pad);break;case 5:return 0;default:break;}} }
- gfxExit();return 0;}
+ s.Close();return 0;}
