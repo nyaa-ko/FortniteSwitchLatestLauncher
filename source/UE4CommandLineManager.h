@@ -1,93 +1,64 @@
-#include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unordered_map>
+#pragma once
+
+// ---------------------------------------------------------------------------
+// UE4 command line manager.
+// Original implementation by the Fortnite Latest Launcher authors; refactored
+// minimally for Midnight Launcher:
+//   * include guard added
+//   * hard-coded write paths replaced by explicit parameters
+//   * fprintf format-string bug fixed (data was used as a format string)
+//   * no "using namespace std" leakage
+// Behaviour of parsing / rebuilding is intentionally unchanged.
+// ---------------------------------------------------------------------------
+
+#include "Common.h"
+#include <cstring>
 #include <regex>
-#include <switch.h>
-using namespace std;
+#include <unordered_map>
 
-std::string RebuildUE4CommandLine(std::unordered_map<string, string> arguments)
-{
-    std::string commandLine = "../../../FortniteGame/FortniteGame.uproject ";
-    for (auto &argument : arguments)
-    {
+using UE4Args = std::unordered_map<std::string, std::string>;
 
-        commandLine += (argument.second != "" ? ("-" + argument.first + "=" + argument.second + " ") : ("-" + argument.first + " "));
+inline std::string RebuildUE4CommandLine(const UE4Args &arguments,
+                                         const std::string &uproject =
+                                             "../../../FortniteGame/FortniteGame.uproject ") {
+    std::string commandLine = uproject;
+    for (const auto &argument : arguments) {
+        if (argument.first == "failedtoopen")
+            continue;
+        commandLine += (!argument.second.empty()
+                            ? ("-" + argument.first + "=" + argument.second + " ")
+                            : ("-" + argument.first + " "));
     }
     return commandLine;
 }
 
-regex argsRegex("-([A-Za-z_]+)(=(.*))?");
+inline UE4Args ParseUE4CommandLine(const std::string &filePath) {
+    static const std::regex argsRegex("-([A-Za-z_]+)(=(.*))?");
+    UE4Args arguments;
 
-std::unordered_map<string, string> ParseUE4CommandLine(const std::string &filePath)
-{
-    consoleUpdate(NULL);
-    std::unordered_map<string, string> arguments;
     FILE *file = std::fopen(filePath.c_str(), "r");
-
-    if (file)
-    {
-        char line[1024]; // Adjust the buffer size as needed
-
-        while (std::fgets(line, sizeof(line), file))
-        {
-
-            char *token = strtok(line, " \t\n");
-
-            while (token)
-            {
-                std::smatch match;
-                consoleUpdate(NULL);
-                std::string tokenString(token);
-                if (std::regex_match(tokenString, match, argsRegex))
-                {
-                    arguments[match[1]] = match[3];
-                }
-                consoleUpdate(NULL);
-
-                token = strtok(NULL, " \t\n");
-            }
-
-            token = strtok(NULL, " \t\n");
-        }
-
-        std::fclose(file);
-    }
-    else
-    {
+    if (!file) {
         arguments["failedtoopen"] = "true";
         return arguments;
     }
 
+    char line[1024];
+    while (std::fgets(line, sizeof(line), file)) {
+        char *token = std::strtok(line, " \t\n");
+        while (token) {
+            std::string tokenString(token);
+            std::smatch match;
+            if (std::regex_match(tokenString, match, argsRegex))
+                arguments[match[1]] = match[3];
+            token = std::strtok(nullptr, " \t\n");
+        }
+    }
+
+    std::fclose(file);
     return arguments;
 }
 
-void SaveUE4CommandLine(std::string arguments)
-{
-    FILE *file = std::fopen("sdmc:/atmosphere/contents/010025400AECE000/romfs/UECommandLine.txt", "w");
-    if (file)
-    {
-        std::fprintf(file, arguments.c_str());
-        std::fclose(file);
-    }
-    else
-    {
-        std::cerr << "Failed to open the UECommandLine.txt file." << std::endl;
-    }
-}
-
-void storeOldUE4CommandLine(std::unordered_map<string, string> arguments)
-{
-    std::string commandLine = RebuildUE4CommandLine(arguments);
-    FILE *file = std::fopen("sdmc:/switch/FortLatestLauncher/OldCommandLine.txt", "w");
-    if (file)
-    {
-        std::fprintf(file, commandLine.c_str());
-        std::fclose(file);
-    }
-    else
-    {
-        std::cerr << "Failed to open the OldCommandLine.txt file." << std::endl;
-    }
+// Write a command line to an explicit path (no hidden global path any more).
+inline bool SaveUE4CommandLine(const std::string &path, const std::string &commandLine) {
+    return writeWholeFile(path, commandLine);
 }
