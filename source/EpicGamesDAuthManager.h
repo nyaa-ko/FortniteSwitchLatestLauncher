@@ -1,0 +1,636 @@
+#include <json.hpp>
+#include <iostream>
+#include <stdio.h>
+#include <stdarg.h>
+#include <stdlib.h>
+#include <string>
+#include <optional>
+#include <curl/curl.h>
+#include <sstream>
+#include <switch.h>
+using namespace std;
+
+using json = nlohmann::json;
+using OptionalJson = std::optional<json>;
+
+size_t WriteCallback(void *contents, size_t size, size_t nmemb, std::string *response)
+{
+    size_t totalSize = size * nmemb;
+    response->append(static_cast<char *>(contents), totalSize);
+    return totalSize;
+}
+
+// アカウントの配列を取得するよう変更
+json GetAccounts() {
+    FILE *file = fopen("sdmc:/switch/FortLatestLauncher/auth.json", "r");
+
+    if (!file)
+    {
+        return json::array();
+    }
+
+    std::string contents;
+    fseek(file, 0, SEEK_END);
+    long fileSize = ftell(file);
+    fseek(file, 0, SEEK_SET);
+    if (fileSize > 0)
+    {
+        contents.resize(fileSize);
+        size_t readBytes = fread(&contents[0], 1, fileSize, file);
+        contents.resize(readBytes);
+    }
+    else
+    {
+        fclose(file);
+        return json::array();
+    }
+
+    fclose(file);
+
+    try
+    {
+        json j = json::parse(contents);
+        if (j.is_array()) return j;
+        return json::array();
+    }
+    catch (const nlohmann::json::parse_error &e)
+    {
+        printf("Failed to parse auth.json: %s\n", e.what());
+        return json::array();
+    }
+}
+
+// アカウントの配列を保存するよう変更
+void SaveAccounts(json accountsArray) {
+    FILE *file = std::fopen("sdmc:/switch/FortLatestLauncher/auth.json", "w");
+    if (!file)
+    {
+        printf("Failed to open auth.json for writing\n");
+        consoleUpdate(NULL);
+        return;
+    }
+    std::string s = accountsArray.dump(4);
+    size_t written = fwrite(s.c_str(), 1, s.size(), file);
+    if (written != s.size())
+    {
+        printf("Warning: failed to write full auth.json (%zu/%zu)\n", written, s.size());
+        consoleUpdate(NULL);
+    }
+    fclose(file);
+}
+
+std::string getClientCredentials()
+{
+    CURL *curl = curl_easy_init();
+
+    if (curl)
+    {
+        std::string body;
+        curl_easy_setopt(curl, CURLOPT_URL, "https://account-public-service-prod.ol.epicgames.com/account/api/oauth/token");
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "grant_type=client_credentials");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+        struct curl_slist *headers = NULL;
+        headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+        headers = curl_slist_append(headers, "Authorization: Basic OThmN2U0MmMyZTNhNGY4NmE3NGViNDNmYmI0MWVkMzk6MGEyNDQ5YTItMDAxYS00NTFlLWFmZWMtM2U4MTI5MDFjNGQ3");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+        CURLcode res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return std::string();
+        }
+
+        long responseCode = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+        if (responseCode != 200)
+        {
+            printf("Client credentials request returned HTTP %ld\n", responseCode);
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return std::string();
+        }
+
+        try
+        {
+            json j = json::parse(body);
+            if (j.contains("access_token") && j["access_token"].is_string())
+            {
+                std::string token = j["access_token"].get<std::string>();
+                curl_slist_free_all(headers);
+                curl_easy_cleanup(curl);
+                return token;
+            }
+            else
+            {
+                printf("Client credentials response missing access_token\n");
+            }
+        }
+        catch (const nlohmann::json::parse_error &e)
+        {
+            printf("Failed to parse client credentials response: %s\n", e.what());
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+        }
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+    }
+    else
+    {
+        printf("Failed to initialize libcurl\n");
+    }
+    return std::string();
+}
+
+json startDauthProcess(std::string accessToken)
+{
+    CURL *curl = curl_easy_init();
+    CURLcode res;
+
+    if (curl)
+    {
+        std::string body;
+        struct curl_slist *headers = NULL;
+
+        curl_easy_setopt(curl, CURLOPT_URL, "https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/deviceAuthorization");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, "");
+
+        headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+        std::string authHeader = "Authorization: Bearer " + accessToken;
+        headers = curl_slist_append(headers, authHeader.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+        printf("Starting DAuth process...\n");
+        consoleUpdate(NULL);
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            consoleUpdate(NULL);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return json();
+        }
+
+        long responseCode = 0;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+        if (responseCode != 200)
+        {
+            printf("DAuth init returned HTTP %ld\n", responseCode);
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return json();
+        }
+
+        try
+        {
+            json j = json::parse(body);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return j;
+        }
+        catch (const nlohmann::json::parse_error &e)
+        {
+            printf("Failed to parse DAuth init response: %s\n", e.what());
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return json();
+        }
+    }
+
+    return json();
+}
+
+json pollDauth(std::string deviceCode)
+{
+    CURL *curl = curl_easy_init();
+    CURLcode res;
+
+    if (curl)
+    {
+        std::string body;
+        struct curl_slist *headers = NULL;
+
+        curl_easy_setopt(curl, CURLOPT_URL, "https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/token");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        std::string postData = "grant_type=device_code&device_code=" + deviceCode;
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postData.c_str());
+
+        headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+        headers = curl_slist_append(headers, "Authorization: Basic OThmN2U0MmMyZTNhNGY4NmE3NGViNDNmYmI0MWVkMzk6MGEyNDQ5YTItMDAxYS00NTFlLWFmZWMtM2U4MTI5MDFjNGQ3");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+        consoleUpdate(NULL);
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return json(); 
+        }
+
+        long responseCode;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+
+        if (responseCode != 200)
+        {
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return json(); 
+        }
+
+        json j = json::parse(body);
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return j;
+    }
+
+    return json();
+}
+
+
+string getAccessToken(json DauthResponse) {
+    CURL *curl = curl_easy_init();
+    CURLcode res;
+
+    if (curl)
+    {
+        std::string body;
+        struct curl_slist *headers = NULL;
+
+        std::string accountId = DauthResponse["accountId"].get<std::string>();
+
+        std::string url = "https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/token";
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        std::string postBody = "grant_type=device_auth&account_id=" + accountId + "&device_id=" + DauthResponse["deviceId"].get<std::string>() + "&secret=" + DauthResponse["secret"].get<std::string>();
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
+
+        headers = curl_slist_append(headers, "Authorization: Basic M2Y2OWU1NmM3NjQ5NDkyYzhjYzI5ZjFhZjA4YThhMTI6YjUxZWU5Y2IxMjIzNGY1MGE2OWVmYTY3ZWY1MzgxMmU");
+        headers = curl_slist_append(headers, "Content-Type: application/x-www-form-urlencoded");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            json errorJson = json::parse(body);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            if (errorJson["numericErrorCode"].get<int>() == 18031)
+            {
+                return "INVALID_DEVICE_AUTH";
+            }
+            return ""; 
+        }
+
+        long responseCode;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+
+        if (responseCode != 200)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            printf("Response code: %ld\n", responseCode);
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return "";
+        }
+
+        json j = json::parse(body);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return j["access_token"];
+    } else {
+        return "";
+    }
+}
+
+string getExchangeCode(json DauthResponse) {
+    CURL *curl = curl_easy_init();
+    CURLcode res;
+
+    if (curl)
+    {
+        std::string body;
+        struct curl_slist *headers = NULL;
+
+        std::string url = "https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/exchange";
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        std::string accessToken = getAccessToken(DauthResponse);
+        if (accessToken == "INVALID_DEVICE_AUTH")
+        {
+            return "INVALID_DEVICE_AUTH";
+        }
+        std::string authBearer = "Authorization: Bearer " + accessToken;
+        headers = curl_slist_append(headers, authBearer.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return ""; 
+        }
+
+        long responseCode;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+
+        if (responseCode != 200)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            printf("Response code: %ld\n", responseCode);
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return ""; 
+        }
+
+        json j = json::parse(body);
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return j["code"];
+    } else {
+        return "";
+    }
+}
+
+string getAndroidAccessToken(string currentAccessToken) {
+    CURL *curl = curl_easy_init();
+    CURLcode res;
+    printf("Getting Android access token...\n");
+    consoleUpdate(NULL);
+
+    if (curl)
+    {
+        std::string body;
+        struct curl_slist *headers = NULL;
+
+        std::string url = "https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/exchange";
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+
+        std::string authBearer = "Authorization: Bearer " + currentAccessToken;
+        headers = curl_slist_append(headers, authBearer.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return "";
+        }
+
+        long responseCode;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+
+        if (responseCode != 200)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            printf("Response code: %ld\n", responseCode);
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return "";
+        }
+
+        json j;  
+        try {
+            j = json::parse(body);
+        } catch (const nlohmann::json::parse_error &e) {
+            printf("Failed to parse exchange response: %s\n", e.what());
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+        }
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+
+        if (!j.contains("code") || !j["code"].is_string()) {
+            printf("Exchange response missing code\n");
+            consoleUpdate(NULL);
+            sleep(3);
+            return "";
+        }
+
+        std::string exchangeCode = j["code"].get<std::string>();
+
+        curl = curl_easy_init();
+        if (!curl) return "";
+
+        curl_easy_setopt(curl, CURLOPT_URL, "https://account-public-service-prod03.ol.epicgames.com/account/api/oauth/token");
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+        std::string postBody = "grant_type=exchange_code&exchange_code=" + exchangeCode;
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, postBody.c_str());
+
+        body.clear();
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+
+        struct curl_slist *tokenHeaders = NULL;
+        tokenHeaders = curl_slist_append(tokenHeaders, "Authorization: Basic M2Y2OWU1NmM3NjQ5NDkyYzhjYzI5ZjFhZjA4YThhMTI6YjUxZWU5Y2IxMjIzNGY1MGE2OWVmYTY3ZWY1MzgxMmU");
+        tokenHeaders = curl_slist_append(tokenHeaders, "Content-Type: application/x-www-form-urlencoded");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, tokenHeaders);
+
+        res = curl_easy_perform(curl);
+
+        if (res != CURLE_OK)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(tokenHeaders);
+            curl_easy_cleanup(curl);
+            return "";
+        }
+
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+        if (responseCode != 200)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            printf("Response code: %ld\n", responseCode);
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(tokenHeaders);
+            curl_easy_cleanup(curl);
+            return "";
+        }
+
+        try {
+            j = json::parse(body);
+        } catch (const nlohmann::json::parse_error &e) {
+            printf("Failed to parse Android token response: %s\n", e.what());
+            printf("Response body: %s\n", body.c_str());
+            consoleUpdate(NULL);
+            sleep(3);
+            curl_slist_free_all(tokenHeaders);
+            curl_easy_cleanup(curl);
+            return "";
+        }
+        curl_slist_free_all(tokenHeaders);
+        curl_easy_cleanup(curl);
+
+        if (j.contains("access_token") && j["access_token"].is_string()) {
+            return j["access_token"].get<std::string>();
+        }
+        else {
+            printf("Token response missing access_token\n");
+            consoleUpdate(NULL);
+            sleep(3);
+            return "";
+        }
+    }
+    else
+    {
+        return "";
+    }
+}
+
+json getDeviceAuth(json DAuthResponse) {
+    CURL *curl = curl_easy_init();
+    CURLcode res;
+
+    if (curl)
+    {
+        std::string body;
+        struct curl_slist *headers = NULL;
+        std::string accountId = DAuthResponse["account_id"];
+
+        std::string androidAccessToken = getAndroidAccessToken(DAuthResponse["access_token"].get<std::string>());
+        if (androidAccessToken == "")
+        {
+            return json();
+        }
+
+        std::string url = "https://account-public-service-prod03.ol.epicgames.com/account/api/public/account/" + accountId + "/deviceAuth";
+        printf("URL: %s\n", url.c_str());
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+        headers = curl_slist_append(headers, ("Authorization: Bearer " + androidAccessToken).c_str());
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &body);
+        consoleUpdate(NULL);
+        res = curl_easy_perform(curl);
+
+        long responseCode;
+        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &responseCode);
+
+        if (responseCode != 200)
+        {
+            printf("EpicGames request failed: %s\n", curl_easy_strerror(res));
+            printf("Response code: %ld\n", responseCode);
+            printf("Response body: %s\n", body.c_str());
+
+            curl_slist_free_all(headers);
+            curl_easy_cleanup(curl);
+            return json(); 
+        }
+
+        json j = json::parse(body);
+
+        curl_slist_free_all(headers);
+        curl_easy_cleanup(curl);
+        return j;
+    }
+
+    return json();
+}
+
+// 成功時にJSONデータを返すように変更
+json InitializeAuthProcess()
+{
+    printf("Initializing auth process...\n");
+    consoleUpdate(NULL);
+
+    std::string clientCredentialsToken = getClientCredentials();
+    json dauthInit = startDauthProcess(clientCredentialsToken);
+
+    if (dauthInit.empty())
+    {
+        printf("Failed to start DAuth process.\n");
+        consoleUpdate(NULL);
+        return json();
+    }
+
+    std::string deviceCode = dauthInit["device_code"];
+    std::string verificationUri = dauthInit["verification_uri_complete"];
+
+    printf("Get a device with an internet connection and go to %s to authenticate to your Epic Games account.\n", verificationUri.c_str());
+    consoleUpdate(NULL);
+
+    while (true)
+    {
+        json dauthPoll = pollDauth(deviceCode);
+
+        if (!dauthPoll.empty())
+        {
+            printf("Authenticated!\n");
+            json dauth = getDeviceAuth(dauthPoll);
+            if (dauth.empty())
+            {
+                printf("Failed to get device auth.\n");
+                return json();
+            }
+            dauth["displayName"] = dauthPoll["displayName"];
+            return dauth; // 呼び出し元で配列に追加する
+        }
+
+        consoleUpdate(NULL);
+        sleep(1);
+    }
+}
