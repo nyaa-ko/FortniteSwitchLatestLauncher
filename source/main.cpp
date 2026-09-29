@@ -53,7 +53,7 @@ void ShowMessage(PadState* pad, const std::string& msg) {
         u64 kDown = padGetButtonsDown(pad);
         
         consoleClear();
-        printf("%s\n\n[A] または [B] ボタンで戻る\n", msg.c_str());
+        printf("%s\n\nPress [A] or [B] to return.\n", msg.c_str());
         consoleUpdate(NULL);
         
         if (kDown & (HidNpadButton_A | HidNpadButton_B)) {
@@ -94,7 +94,7 @@ std::string ChooseColorMenu(PadState* pad) {
         u64 kDown = padGetButtonsDown(pad);
         
         consoleClear();
-        printf("=== ラベルの色を選択してください ===\n\n");
+        printf("=== Select Label Color ===\n\n");
         for (int i = 0; i < max_colors; ++i) {
             if (i == selected) {
                 printf("> %s%s%s <\n", colors[i], colorNames[i], COLOR_RESET);
@@ -102,7 +102,7 @@ std::string ChooseColorMenu(PadState* pad) {
                 printf("  %s%s%s  \n", colors[i], colorNames[i], COLOR_RESET);
             }
         }
-        printf("\n十字キー上下: 選択 | A: 決定 | B: 戻る\n");
+        printf("\nD-Pad Up/Down: Select | A: Confirm | B: Back\n");
         consoleUpdate(NULL);
         
         if (kDown & HidNpadButton_Up) { if (selected > 0) selected--; }
@@ -113,7 +113,7 @@ std::string ChooseColorMenu(PadState* pad) {
     return "CANCEL";
 }
 
-// アカウント選択メニュー (戻り値は選択されたインデックス、キャンセル時は -1)
+// アカウント選択メニュー
 int SelectAccountMenu(PadState* pad, const char* title) {
     json accounts = GetAccounts();
     if (accounts.empty()) return -1;
@@ -138,7 +138,7 @@ int SelectAccountMenu(PadState* pad, const char* title) {
             }
         }
         
-        printf("\n十字キー上下: 選択 | A: 決定 | B: 戻る\n");
+        printf("\nD-Pad Up/Down: Select | A: Confirm | B: Back\n");
         consoleUpdate(NULL);
 
         if (kDown & HidNpadButton_Up) { if (selectedIndex > 0) selectedIndex--; }
@@ -162,7 +162,7 @@ int main(int argc, char* argv[])
 
     if (!HasConnection())
     {
-        printf("インターネット接続が必要です。\n+ ボタンで終了します。\n");
+        printf("Internet connection is required.\nPress + to exit.\n");
         while (appletMainLoop())
         {
             padUpdate(&pad);
@@ -188,10 +188,10 @@ int main(int argc, char* argv[])
     fclose(file);
 
     const char* mainOptions[] = {
-        "Fortnite を起動する",
-        "アカウント管理 (追加/削除)",
-        "起動オプション(CommandLine)の復元",
-        "終了"
+        "Launch Fortnite",
+        "Manage Accounts (Add/Delete)",
+        "Restore CommandLine Arguments",
+        "Exit"
     };
     int mainSelected = 0;
     int maxMainOptions = 4;
@@ -205,7 +205,7 @@ int main(int argc, char* argv[])
         consoleClear();
         printf("-----------------FORTNITE LATEST LAUNCHER-----------------\n");
         printf("Version %s\n\n", VERSION);
-        printf("=== メインメニュー ===\n\n");
+        printf("=== Main Menu ===\n\n");
         
         for (int i = 0; i < maxMainOptions; ++i) {
             if (i == mainSelected) {
@@ -215,7 +215,7 @@ int main(int argc, char* argv[])
             }
         }
         
-        printf("\n十字キー上下: 選択 | A: 決定\n");
+        printf("\nD-Pad Up/Down: Select | A: Confirm\n");
         consoleUpdate(NULL);
 
         // メインメニュー操作
@@ -227,14 +227,14 @@ int main(int argc, char* argv[])
             if (mainSelected == 0) {
                 json accounts = GetAccounts();
                 if (accounts.empty()) {
-                    ShowMessage(&pad, "アカウントが登録されていません。\n「アカウント管理」から追加してください。");
+                    ShowMessage(&pad, "No registered accounts found.\nPlease add an account from 'Manage Accounts'.");
                     continue;
                 }
 
                 int accIndex = 0;
                 if (accounts.size() > 1) {
-                    accIndex = SelectAccountMenu(&pad, "起動するアカウントを選択");
-                    if (accIndex == -1) continue; // Bボタンキャンセル
+                    accIndex = SelectAccountMenu(&pad, "Select Account to Launch");
+                    if (accIndex == -1) continue; 
                 }
 
                 json targetAuth = accounts[accIndex]["auth"];
@@ -249,7 +249,7 @@ int main(int argc, char* argv[])
                 
                 std::string exchangeCode = getExchangeCode(targetAuth);
                 if (exchangeCode == "INVALID_DEVICE_AUTH") {
-                    ShowMessage(&pad, "認証情報が無効です。\nアカウントを削除して再度追加してください。");
+                    ShowMessage(&pad, "Invalid credentials.\nPlease delete and re-add this account.");
                     continue;
                 }
 
@@ -270,7 +270,7 @@ int main(int argc, char* argv[])
             }
             // 2. アカウント管理
             else if (mainSelected == 1) {
-                const char* accOptions[] = {"新規アカウントの追加", "登録済みアカウントの削除"};
+                const char* accOptions[] = {"Add New Account", "Delete Account"};
                 int accSelected = 0;
                 
                 while (appletMainLoop()) {
@@ -278,17 +278,17 @@ int main(int argc, char* argv[])
                     u64 subDown = padGetButtonsDown(&pad);
 
                     consoleClear();
-                    printf("=== アカウント管理 ===\n\n");
+                    printf("=== Account Management ===\n\n");
                     for (int i = 0; i < 2; ++i) {
                         if (i == accSelected) printf("> %s <\n", accOptions[i]);
                         else printf("  %s  \n", accOptions[i]);
                     }
-                    printf("\n十字キー上下: 選択 | A: 決定 | B: 戻る\n");
+                    printf("\nD-Pad Up/Down: Select | A: Confirm | B: Back\n");
                     consoleUpdate(NULL);
 
                     if (subDown & HidNpadButton_Up) { if (accSelected > 0) accSelected--; }
                     if (subDown & HidNpadButton_Down) { if (accSelected < 1) accSelected++; }
-                    if (subDown & HidNpadButton_B) { break; } // Bでメインメニューに戻る
+                    if (subDown & HidNpadButton_B) { break; } 
 
                     if (subDown & HidNpadButton_A) {
                         // 新規追加
@@ -298,13 +298,14 @@ int main(int argc, char* argv[])
                             
                             if (!newDauth.empty()) {
                                 std::string defaultLabel = newDauth["displayName"].get<std::string>();
-                                std::string label = GetKeyboardInput("アカウントのラベルを入力してください", defaultLabel.c_str());
+                                // キーボード入力ダイアログはOS標準のものなので日本語入力・表示が可能です
+                                std::string label = GetKeyboardInput("Enter Account Label", defaultLabel.c_str());
                                 if (label.empty()) label = defaultLabel;
 
                                 std::string color = ChooseColorMenu(&pad);
                                 if (color == "CANCEL") {
-                                    ShowMessage(&pad, "アカウント追加をキャンセルしました。");
-                                    continue; // アカウント管理メニューに戻る
+                                    ShowMessage(&pad, "Account creation canceled.");
+                                    continue; 
                                 }
 
                                 json newAccount;
@@ -316,19 +317,19 @@ int main(int argc, char* argv[])
                                 accounts.push_back(newAccount);
                                 SaveAccounts(accounts);
                                 
-                                ShowMessage(&pad, "アカウントが正常に追加されました！");
+                                ShowMessage(&pad, "Account added successfully!");
                             } else {
-                                ShowMessage(&pad, "認証に失敗したか、キャンセルされました。");
+                                ShowMessage(&pad, "Authentication failed or was canceled.");
                             }
                         }
                         // 削除
                         else if (accSelected == 1) {
-                            int idx = SelectAccountMenu(&pad, "削除するアカウントを選択");
+                            int idx = SelectAccountMenu(&pad, "Select Account to Delete");
                             if (idx != -1) {
                                 json accounts = GetAccounts();
                                 accounts.erase(accounts.begin() + idx);
                                 SaveAccounts(accounts);
-                                ShowMessage(&pad, "指定したアカウントを削除しました。");
+                                ShowMessage(&pad, "Account deleted successfully.");
                             }
                         }
                     }
@@ -340,9 +341,9 @@ int main(int argc, char* argv[])
                 if (arguments["failedtoopen"].empty()) {
                     SaveUE4CommandLine(RebuildUE4CommandLine(arguments));
                     remove("sdmc:/switch/FortLatestLauncher/OldCommandLine.txt");
-                    ShowMessage(&pad, "CommandLine の引数を復元しました。");
+                    ShowMessage(&pad, "CommandLine arguments restored successfully.");
                 } else {
-                    ShowMessage(&pad, "復元できる古い CommandLine データがありません。");
+                    ShowMessage(&pad, "No old CommandLine data found to restore.");
                 }
             }
             // 4. 終了
