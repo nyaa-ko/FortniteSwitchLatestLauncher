@@ -1,0 +1,28 @@
+name: Build NRO
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image: devkitpro/devkita64:latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: make
+
+      - name: Find NRO
+        run: find . -name '*.nro' -print
+
+      - name: Upload NRO
+        uses: actions/upload-artifact@v4
+        with:
+          name: FortniteSwitchLatestLauncher
+          path: '**/*.nro'
