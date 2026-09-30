@@ -203,9 +203,8 @@ int main(int argc, char* argv[])
 
         // メインメニュー描画
         consoleClear();
-        printf("-----------------FORTNITE LATEST LAUNCHER-----------------\n");
         printf("Version %s\n\n", VERSION);
-        printf("=== Main Menu ===\n\n");
+        printf("-----Main Menu-----\n\n");
         
         for (int i = 0; i < maxMainOptions; ++i) {
             if (i == mainSelected) {
@@ -256,8 +255,8 @@ int main(int argc, char* argv[])
                 arguments["AUTH_PASSWORD"] = exchangeCode;
                 arguments["AUTH_LOGIN"] = "unused";
                 arguments["AUTH_TYPE"] = "exchangecode";
-                arguments["AuthClient"] = "3f69e56c7649492c8cc29f1af08a8a12";
-                arguments["AuthSecret"] = "b51ee9cb12234f50a69efa67ef53812e";
+                arguments["AuthClient"] = "98f7e42c2e3a4f86a74eb43fbb41ed39";
+                arguments["AuthSecret"] = "0a2449a2-001a-451e-afec-3e812901c4d7";
 
                 std::string commandLine = RebuildUE4CommandLine(arguments);
                 SaveUE4CommandLine(commandLine);
